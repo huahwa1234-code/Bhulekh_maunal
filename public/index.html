@@ -1,130 +1,146 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="hi">
 <head>
     <meta charset="UTF-8">
-    <!-- Telegram Web App JS SDK -->
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Bhulekh Control</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Newbhulekh Control</title>
     <style>
-        body, html { margin: 0; padding: 0; background-color: var(--tg-theme-bg-color, #121212); color: var(--tg-theme-text-color, #fff); font-family: sans-serif; overflow: hidden; height: 100%; touch-action: none; }
-        #header { background: var(--tg-theme-secondary-bg-color, #333); padding: 10px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.5); z-index: 10; position: relative; }
-        #status { font-size: 14px; font-weight: bold; color: #ff5252; }
-        #status.connected { color: #69f0ae; }
-        #viewer-container { width: 100%; height: calc(100vh - 100px); overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; position: relative; }
-        #stream-img { display: block; width: 100%; height: auto; transform-origin: top left; }
-        #footer { background: var(--tg-theme-secondary-bg-color, #222); display: flex; justify-content: space-between; padding: 10px; font-size: 14px; position: absolute; bottom: 0; width: 100%; box-sizing: border-box; }
-        button { background: var(--tg-theme-button-color, #444); color: var(--tg-theme-button-text-color, #fff); border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; }
-        button:active { opacity: 0.8; }
-        .pdf-btn { background: #e53935; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Noto Sans Devanagari', sans-serif;
+            background-color: #121212;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #header {
+            background: #1e1e1e;
+            padding: 10px 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #333;
+            z-index: 10;
+        }
+        #status { font-weight: bold; font-size: 14px; }
+        .live { color: #4CAF50; }
+        .disconnected { color: #f44336; }
+        button.btn {
+            background: #7c3aed;
+            color: white;
+            border: none;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        /* SCROLLABLE & ZOOMABLE CONTAINER */
+        #viewport-container {
+            flex: 1;
+            overflow: auto;
+            position: relative;
+            background: #000;
+            -webkit-overflow-scrolling: touch;
+        }
+        #stream-image {
+            display: block;
+            width: 100%;
+            height: auto;
+            transform-origin: top left;
+            cursor: crosshair;
+        }
+        /* BOTTOM ACTION BAR */
+        #footer {
+            background: #1e1e1e;
+            padding: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 1px solid #333;
+            z-index: 10;
+        }
+        #footer span { font-size: 13px; color: #aaa; }
+        #pdf-btn {
+            background: #dc2626;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
+
     <div id="header">
-        <div>Live View</div>
-        <div id="status">🔴 Offline</div>
-        <button onclick="sendAction('refresh')">🔄 Reload</button>
+        <div><b>Live View</b> | <span id="status" class="disconnected">Connecting...</span></div>
+        <button class="btn" onclick="location.reload()">Reload</button>
     </div>
-    
-    <div id="viewer-container">
-        <img id="stream-img" alt="Connecting to server...">
+
+    <!-- Yahin se aap page ko aaram se scroll aur pinch-zoom kar sakenge -->
+    <div id="viewport-container">
+        <img id="stream-image" alt="Live Stream">
     </div>
 
     <div id="footer">
-        <span style="align-self: center; font-size: 12px;">Tap keypad to search</span>
-        <button class="pdf-btn" onclick="requestPdf()">📄 Get PDF & Close</button>
+        <span id="hint">Tap anywhere to click</span>
+        <button id="pdf-btn" onclick="makePdf()">Get PDF & Close</button>
     </div>
 
     <script>
-        // Telegram Web App Initialization
-        const tg = window.Telegram.WebApp;
-        tg.expand(); // Make it full screen
-        tg.ready();
-
         const urlParams = new URLSearchParams(window.location.search);
         const token = urlParams.get('token');
-        const statusEl = document.getElementById('status');
-        const img = document.getElementById('stream-img');
-        const container = document.getElementById('viewer-container');
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+        const wsUrl = `${wsProtocol}${window.location.host}/ws?token=${token}`;
 
-        let ws;
+        const ws = new WebSocket(wsUrl);
+        const img = document.getElementById('stream-image');
+        const status = document.getElementById('status');
+        const container = document.getElementById('viewport-container');
 
-        if (!token) {
-            statusEl.innerText = '❌ Invalid';
-            tg.showAlert('Session token missing!');
-        } else {
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.host}/ws?token=${token}`;
-            
-            function connect() {
-                ws = new WebSocket(wsUrl);
+        ws.onopen = () => {
+            status.textContent = 'Live';
+            status.className = 'live';
+        };
 
-                ws.onopen = () => {
-                    statusEl.innerText = '🟢 Live';
-                    statusEl.className = 'connected';
-                };
+        ws.onclose = () => {
+            status.textContent = 'Disconnected';
+            status.className = 'disconnected';
+        };
 
-                ws.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    if (data.type === 'frame') {
-                        img.src = 'data:image/jpeg;base64,' + data.image;
-                    } else if (data.type === 'closed') {
-                        tg.close(); // Close Web App automatically when session ends
-                    }
-                };
-
-                ws.onclose = () => {
-                    statusEl.innerText = '🔴 Offline';
-                    statusEl.className = '';
-                };
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === 'frame') {
+                img.src = 'data:image/jpeg;base64,' + data.image;
+            } else if (data.type === 'closed') {
+                alert('Session closed.');
+                window.close();
             }
-            connect();
+        };
 
-            // Touch mapping
-            let touchStartX = 0, touchStartY = 0, isDragging = false;
-            img.addEventListener('touchstart', (e) => {
-                if(e.touches.length > 1) return;
-                touchStartX = e.touches[0].clientX;
-                touchStartY = e.touches[0].clientY;
-                isDragging = false;
-            });
-            img.addEventListener('touchmove', (e) => {
-                if (Math.abs(e.touches[0].clientX - touchStartX) > 10 || Math.abs(e.touches[0].clientY - touchStartY) > 10) {
-                    isDragging = true;
-                }
-            });
-            img.addEventListener('touchend', (e) => {
-                if (isDragging || !ws || ws.readyState !== WebSocket.OPEN) return;
-                const touch = e.changedTouches[0];
-                const rect = img.getBoundingClientRect();
-                const scaleX = img.naturalWidth / rect.width;
-                const scaleY = img.naturalHeight / rect.height;
-                const x = (touch.clientX - rect.left) * scaleX;
-                const y = (touch.clientY - rect.top) * scaleY;
-                ws.send(JSON.stringify({ type: 'click', x, y }));
-            });
-            let lastScrollTop = container.scrollTop;
-            container.addEventListener('scroll', () => {
-                if (!ws || ws.readyState !== WebSocket.OPEN) return;
-                const deltaY = container.scrollTop - lastScrollTop;
-                ws.send(JSON.stringify({ type: 'scroll', deltaY }));
-                lastScrollTop = container.scrollTop;
-            });
-        }
+        // Click coordinates mapping
+        img.addEventListener('click', (e) => {
+            const rect = img.getBoundingClientRect();
+            const scaleX = img.naturalWidth / rect.width;
+            const scaleY = img.naturalHeight / rect.height;
 
-        function sendAction(action) {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: action }));
-            }
-        }
+            const x = Math.round((e.clientX - rect.left) * scaleX);
+            const y = Math.round((e.clientY - rect.top) * scaleY);
 
-        function requestPdf() {
-            if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'click', x: x, y: y }));
+        });
+
+        function makePdf() {
+            if(confirm("Kya aap PDF generate karna chahte hain?")) {
                 ws.send(JSON.stringify({ type: 'make_pdf' }));
-                tg.close(); // Close the mini-app UI immediately, user will receive PDF in chat
+                document.getElementById('pdf-btn').innerText = "Generating PDF...";
+                document.getElementById('pdf-btn').disabled = true;
             }
         }
     </script>
 </body>
 </html>
-
