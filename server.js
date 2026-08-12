@@ -13,7 +13,7 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server, path: '/ws' });
 
-app.use(express.static(path.join(__dirname, 'Public'))); // Fixed folder name
+app.use(express.static(path.join(__dirname, 'public'))); // Fixed folder name
 app.get('/health', (req, res) => res.send('OK'));
 
 const PORT = process.env.PORT || 3000;
