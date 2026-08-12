@@ -13,7 +13,12 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server, path: '/ws' });
 
-app.use(express.static(path.join(__dirname, 'public'))); // Fixed folder name
+app.use(express.static(path.join(__dirname, 'public')));
+
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 app.get('/health', (req, res) => res.send('OK'));
 
 const PORT = process.env.PORT || 3000;
@@ -88,7 +93,6 @@ async function getBrowser() {
     return await puppeteer.launch({
         headless: "new",
         executablePath: execPath,
-        // VIEWPORT FIX: Lamba viewport taaki keypad poora dikhe
         defaultViewport: { width: 950, height: 1400 }, 
         args: [
             '--no-sandbox', 
@@ -147,16 +151,12 @@ async function clickByText(page, texts, label, timeout = 30000) {
     await sleep(500);
 }
 
-// SPEED OPTIMIZATION: Wait times kam kar diye hain
 async function fullyAutoSelect(page, value, stepName) {
-    const maxAttempts = 3;
+    const maxAttempts = 4;
     await page.waitForFunction(() => {
         return Array.from(document.querySelectorAll('input'))
             .some(el => el.offsetParent !== null && !el.disabled);
-    }, { timeout: 20000 });
-
-    const beforeCount = await countActiveInputs(page);
-    const beforeUrl = page.url();
+    }, { timeout: 60000 });
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         const inputHandle = await page.evaluateHandle(() => {
@@ -168,8 +168,8 @@ async function fullyAutoSelect(page, value, stepName) {
 
         await input.click({ clickCount: 3, delay: 50 });
         await input.press('Backspace');
-        await input.type(value, { delay: 30 }); // Typing fast
-        await sleep(1200); // 3000 se 1200 ms kiya
+        await input.type(value, { delay: 30 }); 
+        await sleep(1000); 
 
         const optionHandle = await page.evaluateHandle((val) => {
             const norm = t => String(t || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -185,7 +185,7 @@ async function fullyAutoSelect(page, value, stepName) {
             await page.evaluate(node => node.scrollIntoView({ block: 'center', inline: 'center' }), option);
             await sleep(100);
             await option.click({ delay: 50 });
-            await sleep(1500); // 3500 se 1500 ms kiya
+            await sleep(1200); 
             await optionHandle.dispose().catch(() => {});
             await inputHandle.dispose().catch(() => {});
             return;
@@ -204,41 +204,34 @@ async function generateAndSendPdf(chatId, token) {
     const page = session.page;
 
     try {
-        bot.sendMessage(chatId, '📄 PDF generate ki ja rahi hai...');
+        await bot.sendMessage(chatId, '⌛ PDF ban rahi hai, kripya wait karein...');
         
         await injectHindiFont(page);
-
-        const isQuotationOpen = await page.evaluate(() => {
-            return document.body.innerText.includes('खातेदार का नाम') && document.body.innerText.includes('उद्धरण');
-        });
-
-        if (!isQuotationOpen) {
-            const hasQuoteBtn = await page.evaluate(() => {
-                const btns = Array.from(document.querySelectorAll('button, a'));
-                return btns.some(b => b.innerText.includes('उद्धरण देखें') || b.innerText.includes('view quotation'));
-            });
-
-            if (hasQuoteBtn) {
-                await clickByText(page, ['उद्धरण देखें', 'उद्धरण', 'view quotation', 'view'], 'Quotation Button');
-                await sleep(3000);
-                await injectHindiFont(page);
-            }
-        }
+        await sleep(2000); 
 
         const pdfPath = path.join(__dirname, `khatauni_${chatId}_${Date.now()}.pdf`);
         await page.emulateMediaType('screen').catch(() => {});
-        await page.pdf({ path: pdfPath, format: 'A4', printBackground: true, margin: { top: '10mm', right: '10mm', bottom: '10mm', left: '10mm' } });
+        await page.pdf({ 
+            path: pdfPath, 
+            format: 'A4', 
+            printBackground: true, 
+            margin: { top: '10mm', right: '5mm', bottom: '10mm', left: '5mm' } 
+        });
         
-        await bot.sendDocument(chatId, pdfPath, { caption: "✅ Ye rahi aapki PDF!" }, { filename: path.basename(pdfPath), contentType: 'application/pdf' });
-        if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath);
+        if (fs.existsSync(pdfPath)) {
+            await bot.sendDocument(chatId, pdfPath, { caption: "✅ Yeh rahi aapki PDF!" }, { filename: 'khatauni.pdf', contentType: 'application/pdf' });
+            fs.unlinkSync(pdfPath);
+        } else {
+            throw new Error("PDF file nahi bani.");
+        }
         
         await closeSession(token, '✅ Session successfully close kar diya gaya hai.');
     } catch (e) {
+        console.error("PDF Error:", e);
         bot.sendMessage(chatId, `❌ Error in PDF generation: ${e.message}`);
     }
 }
 
-// --- NEW REMOTE FLOW (Web App) ---
 async function startRemoteFlow(chatId, tehsil, village) {
     let browser;
     try {
@@ -246,18 +239,17 @@ async function startRemoteFlow(chatId, tehsil, village) {
         
         browser = await getBrowser();
         const page = await browser.newPage();
-        await page.setDefaultTimeout(40000);
-        await page.setDefaultNavigationTimeout(50000);
+        await page.setDefaultTimeout(60000);
+        await page.setDefaultNavigationTimeout(60000);
 
         await bot.sendMessage(chatId, '⚙️ Automation chal raha hai, kripya thoda wait karein...');
         
-        // SPEED FIX: networkidle2 ki jagah domcontentloaded use kiya
         await page.goto(BHULEKH_URL, { waitUntil: 'domcontentloaded' });
-        await injectHindiFont(page); // FONT FIX
+        await injectHindiFont(page);
 
-        await clickByText(page, ['खतौनी', 'खाताuni', 'रियल टाइम', 'rtk'], 'Khatauni Link', 30000).catch(async () => {
+        await clickByText(page, ['खतौनी', 'खाताuni', 'रियल टाइम', 'rtk'], 'Khatauni Link', 40000).catch(async () => {
             await page.goto('https://upbhulekh.gov.in/#/khatauni_rtk', { waitUntil: 'domcontentloaded' });
-            await injectHindiFont(page); // FONT FIX
+            await injectHindiFont(page);
         });
 
         await fullyAutoSelect(page, FIXED_DISTRICT, 'District');
@@ -266,8 +258,6 @@ async function startRemoteFlow(chatId, tehsil, village) {
         
         await page.keyboard.press('Escape').catch(() => {});
         await sleep(500);
-
-        // Scroll thoda neeche kar dete hain taaki keypad direct center me aaye
         await page.evaluate(() => window.scrollBy(0, 150)).catch(() => {});
 
         const token = uuidv4();
@@ -280,7 +270,6 @@ async function startRemoteFlow(chatId, tehsil, village) {
         session.streamInterval = setInterval(async () => {
             if (session.clients.size === 0 || page.isClosed()) return;
             try {
-                // Quality badha di hai taaki text clear dikhe (50 se 60)
                 const screenshot = await page.screenshot({ type: 'jpeg', quality: 60, encoding: 'base64' });
                 const message = JSON.stringify({ type: 'frame', image: screenshot });
                 session.clients.forEach(c => {
@@ -290,7 +279,6 @@ async function startRemoteFlow(chatId, tehsil, village) {
         }, 300);
 
         const remoteUrl = `${BASE_URL}/?token=${token}`;
-        
         const opts = {
             reply_markup: {
                 inline_keyboard: [
@@ -299,7 +287,7 @@ async function startRemoteFlow(chatId, tehsil, village) {
             }
         };
         
-        await bot.sendMessage(chatId, `✅ Village select ho gaya.\n\nNeeche diye button par click karein aur Telegram ke andar hi apna Khata/Gata/Naam manually search karein.\n\nSearch complete hone ke baad 'Get PDF' button dabayein.`, opts);
+        await bot.sendMessage(chatId, `✅ Village select ho gaya.\n\nNeeche diye button par click karein aur Telegram ke andar hi apna Khata/Gata/Naam manually search karein.\n\nSearch complete hone ke baad 'Get PDF' dabayein ya green 'Download PDF' button par click karein.`, opts);
 
     } catch (err) {
         if (browser) await browser.close();
@@ -308,7 +296,7 @@ async function startRemoteFlow(chatId, tehsil, village) {
     }
 }
 
-// --- WEBSOCKET HANDLER (Live Stream & Touch) ---
+// --- WEBSOCKET HANDLER ---
 wss.on('connection', (ws, req) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const token = url.searchParams.get('token');
@@ -330,11 +318,28 @@ wss.on('connection', (ws, req) => {
             const data = JSON.parse(message);
             if (data.type === 'click') {
                 await session.page.mouse.click(data.x, data.y);
+                
+                // Automatically catch green Download PDF button clicks
+                await sleep(500);
+                const isDownloadClicked = await session.page.evaluate(() => {
+                    const btns = Array.from(document.querySelectorAll('button, a'));
+                    const dlBtn = btns.find(b => b.textContent.includes('Download PDF') || b.textContent.includes('डाउनलोड PDF'));
+                    if (dlBtn) {
+                        dlBtn.click();
+                        return true;
+                    }
+                    return false;
+                });
+
+                if (isDownloadClicked) {
+                    await sleep(1500);
+                    await generateAndSendPdf(session.chatId, token);
+                }
             } else if (data.type === 'scroll') {
                 await session.page.mouse.wheel({ deltaY: data.deltaY });
             } else if (data.type === 'refresh') {
                 await session.page.reload({ waitUntil: 'domcontentloaded' });
-                await injectHindiFont(session.page); // Reload ke baad font wapas daalo
+                await injectHindiFont(session.page);
             } else if (data.type === 'make_pdf') {
                 await generateAndSendPdf(session.chatId, token);
             }
@@ -347,7 +352,6 @@ wss.on('connection', (ws, req) => {
 });
 
 // --- TELEGRAM BOT ROUTING ---
-
 bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
     if (userToToken.has(chatId)) {
@@ -398,7 +402,6 @@ bot.on('message', async (msg) => {
     }
 });
 
-// START SERVER
 server.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
